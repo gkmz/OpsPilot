@@ -49,7 +49,7 @@ func RunInteractive(ctx context.Context, client *llm.Client, args []string, stdi
 			initialSymptom,
 			output,
 		); err != nil {
-			return err
+			fmt.Fprintf(output, "\n请求失败: %v\n", err)
 		}
 
 		fmt.Fprintln(output)
