@@ -4,7 +4,7 @@ package llm
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -75,6 +75,7 @@ func (c *Client) Chat(ctx context.Context, messages []Message) (Response, error)
 	}
 	defer resp.Body.Close()
 
+	// 8M
 	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
 		return Response{}, fmt.Errorf("读取模型响应失败: %w", err)

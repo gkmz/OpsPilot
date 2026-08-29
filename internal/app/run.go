@@ -8,9 +8,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/gkmz/OpsPilot/internal/config"
-	"github.com/gkmz/OpsPilot/internal/diagnosis"
-	"github.com/gkmz/OpsPilot/internal/llm"
+	"github.com/gkmz/opspilot/internal/config"
+	"github.com/gkmz/opspilot/internal/diagnosis"
+	"github.com/gkmz/opspilot/internal/llm"
 )
 
 // Run 执行 OpsPilot v0.1 的单次故障分析命令。
@@ -23,6 +23,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return err
 	}
 
+	// 从环境变量读取大模型配置
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		return err
@@ -45,6 +46,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	return nil
 }
 
+// 从启动参数读取症状描述
 func readSymptom(args []string, stdin io.Reader) (string, error) {
 	symptom := strings.TrimSpace(strings.Join(args, " "))
 	if symptom != "" {

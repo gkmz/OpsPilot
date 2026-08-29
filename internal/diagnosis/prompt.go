@@ -1,7 +1,7 @@
 // Package diagnosis 定义故障分析场景的输入和最小 Prompt。
 package diagnosis
 
-import "github.com/gkmz/OpsPilot/internal/llm"
+import "github.com/gkmz/opspilot/internal/llm"
 
 const systemPrompt = `你是一个 Go HTTP 微服务故障分析助手。
 

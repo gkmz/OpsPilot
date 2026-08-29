@@ -27,7 +27,7 @@ type Config struct {
 // LoadFromEnv 从环境变量加载配置。
 //
 // 支持 OPSPILOT_API_KEY、OPSPILOT_BASE_URL、OPSPILOT_MODEL 和 OPSPILOT_TIMEOUT。
-// Base URL 默认使用 DeepSeek 的 OpenAI 兼容接口，实际模型名称仍必须由调用者明确指定。
+// Base URL、API Key 和模型名称必须由调用者显式配置，避免程序默认绑定特定模型服务商。
 func LoadFromEnv() (Config, error) {
 	timeout := defaultTimeout
 	if raw := strings.TrimSpace(os.Getenv("OPSPILOT_TIMEOUT")); raw != "" {

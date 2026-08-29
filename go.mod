@@ -1,3 +1,3 @@
-module github.com/gkmz/OpsPilot
+module github.com/gkmz/opspilot
 
-go 1.24.0
+go 1.27.0

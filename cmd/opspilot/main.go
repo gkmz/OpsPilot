@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/gkmz/OpsPilot/internal/app"
+	"github.com/gkmz/opspilot/internal/app"
 )
 
 // main 将命令行参数和标准输入交给应用层处理，并将错误转换为非零退出码。
