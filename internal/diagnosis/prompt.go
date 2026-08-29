@@ -14,10 +14,15 @@ const systemPrompt = `你是一个 Go HTTP 微服务故障分析助手。
 
 如果缺少日志、指标、代码变更或运行环境信息，请明确指出缺口。`
 
+// SystemMessage 返回故障分析场景使用的系统消息。
+func SystemMessage() llm.Message {
+	return llm.Message{Role: "system", Content: systemPrompt}
+}
+
 // BuildMessages 将一条故障描述包装成当前版本的诊断消息。
 func BuildMessages(symptom string) []llm.Message {
 	return []llm.Message{
-		{Role: "system", Content: systemPrompt},
+		SystemMessage(),
 		{Role: "user", Content: symptom},
 	}
 }
