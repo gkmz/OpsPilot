@@ -8,7 +8,7 @@
 
 - 日期：2026-08-11
 - 操作系统：macOS / Apple Silicon
-- Go 版本：`go1.25.1 darwin/arm64`
+- Go 版本：`go1.27.0 darwin/arm64`
 - Provider / 模型：本地 `httptest` 假服务；真实兼容端点已调用成功，Provider 和模型待脱敏登记
 - 对应 commit / tag：初始基线 `29f78b79ccd67c7845556363d8bfd7bb95f9fe99`；`course-m1-p01` 待创建
 
