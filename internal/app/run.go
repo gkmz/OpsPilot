@@ -49,6 +49,9 @@ func RunInteractive(ctx context.Context, client *llm.Client, args []string, stdi
 			initialSymptom,
 			output,
 		); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			fmt.Fprintf(output, "\n请求失败: %v\n", err)
 		}
 
@@ -60,18 +63,27 @@ func RunInteractive(ctx context.Context, client *llm.Client, args []string, stdi
 	for {
 		fmt.Fprint(output, "> ")
 
-		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
-				return fmt.Errorf("读取交互输入失败: %w", err)
+		var userInput string
+		result := scanLine(scanner)
+
+		// 同时监听context和scan的用户输入
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case scan := <-result:
+			if scan.err != nil {
+				return scan.err
 			}
-			if !hasUserInput {
-				return errors.New("请通过参数或标准输入提供故障描述")
+			if !scan.ok {
+				if !hasUserInput {
+					return errors.New("请通过参数或标准输入提供故障描述")
+				}
+				return nil
 			}
 
-			return nil
+			userInput = strings.TrimSpace(scan.line)
 		}
 
-		userInput := strings.TrimSpace(scanner.Text())
 		if userInput == "" {
 			continue
 		}
@@ -88,6 +100,9 @@ func RunInteractive(ctx context.Context, client *llm.Client, args []string, stdi
 			userInput,
 			output,
 		); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			fmt.Fprintf(output, "\n请求失败: %v\n", err)
 			continue
 		}
@@ -128,4 +143,24 @@ func runTurn(
 	conversation.CommitAssistant(content.String())
 
 	return nil
+}
+
+type scanResult struct {
+	line string
+	err  error
+	ok   bool
+}
+
+func scanLine(scanner *bufio.Scanner) <-chan scanResult {
+	result := make(chan scanResult, 1)
+
+	go func() {
+		// 把阻塞的Scan方法放到goroutine，以便外层可以监听Context
+		if scanner.Scan() {
+			result <- scanResult{line: scanner.Text(), ok: true}
+			return
+		}
+		result <- scanResult{err: scanner.Err()}
+	}()
+	return result
 }
