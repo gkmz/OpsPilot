@@ -25,12 +25,12 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return err
 	}
 
-	client := llm.NewClient(cfg.BaseURL, cfg.APIKey, cfg.Model, cfg.Timeout)
+	client := llm.NewClient(cfg)
 	return RunInteractive(ctx, client, args, stdin, stdout)
 }
 
 // RunInteractive 在同一个进程内执行多轮流式诊断。
-func RunInteractive(ctx context.Context, client *llm.Client, args []string, stdin io.Reader, output io.Writer) error {
+func RunInteractive(ctx context.Context, client llm.Client, args []string, stdin io.Reader, output io.Writer) error {
 	chat := conversation.New(diagnosis.SystemMessage())
 
 	// 只从命令行参数中读取第一轮问题，不读取 stdin。
@@ -113,7 +113,7 @@ func RunInteractive(ctx context.Context, client *llm.Client, args []string, stdi
 
 func runTurn(
 	ctx context.Context,
-	client *llm.Client,
+	client llm.Client,
 	conversation *conversation.Conversation,
 	userInput string,
 	output io.Writer,

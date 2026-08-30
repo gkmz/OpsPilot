@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gkmz/opspilot/internal/config"
 	"github.com/gkmz/opspilot/internal/llm"
 )
 
@@ -61,7 +62,12 @@ func TestRunInteractiveSendsFollowUpWithHistory(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL+"/v1", "test-key", "test-model", time.Second)
+	client := llm.NewClient(config.Config{
+		APIKey:  "test-key",
+		BaseURL: server.URL + "/v1",
+		Model:   "test-model",
+		Timeout: time.Second,
+	})
 	var output strings.Builder
 	err := RunInteractive(context.Background(), client, []string{"第一轮"}, strings.NewReader("第二轮\n/exit\n"), &output)
 	if err != nil {
@@ -95,7 +101,12 @@ func TestRunInteractiveDoesNotCommitPartialAssistant(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL, "test-key", "test-model", time.Second)
+	client := llm.NewClient(config.Config{
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+		Model:   "test-model",
+		Timeout: time.Second,
+	})
 	var output strings.Builder
 	err := RunInteractive(context.Background(), client, []string{"第一轮"}, strings.NewReader("第二轮\n/exit\n"), &output)
 	if err != nil {

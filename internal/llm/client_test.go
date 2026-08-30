@@ -10,7 +10,25 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gkmz/opspilot/internal/config"
+	"github.com/openai/openai-go/v3"
 )
+
+type chatRequestPayload struct {
+	Model    string    `json:"model"`
+	Messages []Message `json:"messages"`
+	Stream   bool      `json:"stream"`
+}
+
+func newTestClient(baseURL string, timeout time.Duration) Client {
+	return NewClient(config.Config{
+		APIKey:  "test-key",
+		BaseURL: baseURL,
+		Model:   "test-model",
+		Timeout: timeout,
+	})
+}
 
 func TestClientChat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -20,7 +38,7 @@ func TestClientChat(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
 			t.Fatalf("unexpected authorization: %q", got)
 		}
-		var request chatRequest
+		var request chatRequestPayload
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
@@ -32,7 +50,7 @@ func TestClientChat(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL+"/v1", "test-key", "test-model", time.Second)
+	client := newTestClient(server.URL+"/v1", time.Second)
 	response, err := client.Chat(context.Background(), []Message{{Role: "user", Content: "接口延迟升高"}})
 	if err != nil {
 		t.Fatalf("Chat() error = %v", err)
@@ -47,13 +65,39 @@ func TestClientChat(t *testing.T) {
 
 func TestClientChatReturnsHTTPError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, `{"error":"rate limited"}`, http.StatusTooManyRequests)
+		writeOpenAIError(w, http.StatusTooManyRequests, "rate limited")
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model", time.Second)
-	if _, err := client.Chat(context.Background(), []Message{{Role: "user", Content: "test"}}); err == nil {
+	client := newTestClient(server.URL, time.Second)
+	_, err := client.Chat(context.Background(), []Message{{Role: "user", Content: "test"}})
+	if err == nil {
 		t.Fatal("Chat() expected HTTP error")
+	}
+
+	var apiErr *openai.Error
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("Chat() error = %T %v, want *openai.Error in error chain", err, err)
+	}
+	if apiErr.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("Chat() status = %d, want %d", apiErr.StatusCode, http.StatusTooManyRequests)
+	}
+}
+
+func TestClientChatMarksMissingUsageUnknown(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer server.Close()
+
+	client := newTestClient(server.URL, time.Second)
+	response, err := client.Chat(context.Background(), []Message{{Role: "user", Content: "test"}})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if response.Usage.Known {
+		t.Fatalf("Chat() usage = %+v, want unknown usage", response.Usage)
 	}
 }
 
@@ -64,7 +108,7 @@ func TestClientChatRejectsEmptyChoices(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model", time.Second)
+	client := newTestClient(server.URL, time.Second)
 	_, err := client.Chat(context.Background(), []Message{{Role: "user", Content: "test"}})
 	if err == nil || !strings.Contains(err.Error(), "模型响应缺少 choices") {
 		t.Fatalf("Chat() error = %v, want missing choices error", err)
@@ -73,7 +117,7 @@ func TestClientChatRejectsEmptyChoices(t *testing.T) {
 
 func TestClientStreamReceivesChunksAndSendsStreamFlag(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request chatRequest
+		var request chatRequestPayload
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
@@ -83,7 +127,7 @@ func TestClientStreamReceivesChunksAndSendsStreamFlag(t *testing.T) {
 		if got := r.Header.Get("Content-Type"); got != "application/json" {
 			t.Fatalf("unexpected Content-Type: %q", got)
 		}
-		if got := r.Header.Get("Accept"); got != "text/event-stream" {
+		if got := r.Header.Get("Accept"); got != "application/json" {
 			t.Fatalf("unexpected Accept: %q", got)
 		}
 
@@ -92,7 +136,7 @@ func TestClientStreamReceivesChunksAndSendsStreamFlag(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model", time.Second)
+	client := newTestClient(server.URL, time.Second)
 	var chunks []string
 	usage, err := client.Stream(context.Background(), []Message{{Role: "user", Content: "test"}}, func(chunk string) error {
 		chunks = append(chunks, chunk)
@@ -116,7 +160,7 @@ func TestClientStreamRejectsUnexpectedEOF(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model", time.Second)
+	client := newTestClient(server.URL, time.Second)
 	_, err := client.Stream(context.Background(), nil, func(string) error { return nil })
 	if err == nil || !strings.Contains(err.Error(), "未收到 [DONE]") {
 		t.Fatalf("Stream() error = %v, want unexpected EOF error", err)
@@ -125,15 +169,25 @@ func TestClientStreamRejectsUnexpectedEOF(t *testing.T) {
 
 func TestClientStreamReturnsHTTPError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, `{"error":"rate limited"}`, http.StatusTooManyRequests)
+		writeOpenAIError(w, http.StatusTooManyRequests, "rate limited")
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model", time.Second)
+	client := newTestClient(server.URL, time.Second)
 	_, err := client.Stream(context.Background(), nil, func(string) error { return nil })
 	if err == nil || !strings.Contains(err.Error(), "模型返回 HTTP 429") {
 		t.Fatalf("Stream() error = %v, want HTTP 429 error", err)
 	}
+}
+
+func writeOpenAIError(w http.ResponseWriter, statusCode int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_, _ = fmt.Fprintf(
+		w,
+		`{"error":{"message":%q,"type":"rate_limit_error","param":null,"code":"rate_limit"}}`,
+		message,
+	)
 }
 
 func TestClientStreamRejectsInvalidEvent(t *testing.T) {
@@ -143,7 +197,7 @@ func TestClientStreamRejectsInvalidEvent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model", time.Second)
+	client := newTestClient(server.URL, time.Second)
 	_, err := client.Stream(context.Background(), nil, func(string) error { return nil })
 	if err == nil || !strings.Contains(err.Error(), "解析流式响应失败") {
 		t.Fatalf("Stream() error = %v, want invalid event error", err)
@@ -158,7 +212,7 @@ func TestClientStreamReturnsCallbackError(t *testing.T) {
 	defer server.Close()
 
 	callbackErr := errors.New("output closed")
-	client := NewClient(server.URL, "test-key", "test-model", time.Second)
+	client := newTestClient(server.URL, time.Second)
 	_, err := client.Stream(context.Background(), nil, func(string) error { return callbackErr })
 	if !errors.Is(err, callbackErr) {
 		t.Fatalf("Stream() error = %v, want callback error", err)
@@ -181,7 +235,7 @@ func TestClientStreamCanBeCanceled(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	client := NewClient(server.URL, "test-key", "test-model", 5*time.Second)
+	client := newTestClient(server.URL, 5*time.Second)
 	result := make(chan error, 1)
 	go func() {
 		_, err := client.Stream(ctx, nil, func(string) error {
