@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	opserrors "github.com/gkmz/opspilot/internal/errors"
 )
 
 // Store 负责会话记录的本地安全保存和读取。
@@ -53,47 +55,47 @@ func (s *Store) Save(record Record) error {
 		return err
 	}
 	if err := os.MkdirAll(s.directory, 0o700); err != nil {
-		return fmt.Errorf("创建会话目录失败: %w", err)
+		return opserrors.Wrap(opserrors.KindStorage, "创建会话目录失败", err)
 	}
 	if err := os.Chmod(s.directory, 0o700); err != nil {
-		return fmt.Errorf("设置会话目录权限失败: %w", err)
+		return opserrors.Wrap(opserrors.KindStorage, "设置会话目录权限失败", err)
 	}
 
 	data, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
-		return fmt.Errorf("编码会话记录失败: %w", err)
+		return opserrors.Wrap(opserrors.KindStorage, "编码会话记录失败", err)
 	}
 	data = append(data, '\n')
 
 	temporary, err := os.CreateTemp(s.directory, ".session-*.tmp")
 	if err != nil {
-		return fmt.Errorf("创建会话临时文件失败: %w", err)
+		return opserrors.Wrap(opserrors.KindStorage, "创建会话临时文件失败", err)
 	}
 	temporaryName := temporary.Name()
 	defer os.Remove(temporaryName)
 
 	if err := temporary.Chmod(0o600); err != nil {
 		_ = temporary.Close()
-		return fmt.Errorf("设置会话文件权限失败: %w", err)
+		return opserrors.Wrap(opserrors.KindStorage, "设置会话文件权限失败", err)
 	}
 	if _, err := temporary.Write(data); err != nil {
 		_ = temporary.Close()
-		return fmt.Errorf("写入会话记录失败: %w", err)
+		return opserrors.Wrap(opserrors.KindStorage, "写入会话记录失败", err)
 	}
 	if err := temporary.Sync(); err != nil {
 		_ = temporary.Close()
-		return fmt.Errorf("同步会话记录失败: %w", err)
+		return opserrors.Wrap(opserrors.KindStorage, "同步会话记录失败", err)
 	}
 	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("关闭会话临时文件失败: %w", err)
+		return opserrors.Wrap(opserrors.KindStorage, "关闭会话临时文件失败", err)
 	}
 
 	target := filepath.Join(s.directory, record.ID+".json")
 	if err := os.Rename(temporaryName, target); err != nil {
-		return fmt.Errorf("替换会话记录失败: %w", err)
+		return opserrors.Wrap(opserrors.KindStorage, "替换会话记录失败", err)
 	}
 	if err := os.Chmod(target, 0o600); err != nil {
-		return fmt.Errorf("设置会话文件权限失败: %w", err)
+		return opserrors.Wrap(opserrors.KindStorage, "设置会话文件权限失败", err)
 	}
 	return nil
 }
@@ -106,15 +108,15 @@ func (s *Store) Load(id string) (Record, error) {
 
 	data, err := os.ReadFile(filepath.Join(s.directory, id+".json"))
 	if err != nil {
-		return Record{}, fmt.Errorf("读取会话记录失败: %w", err)
+		return Record{}, opserrors.Wrap(opserrors.KindStorage, "读取会话记录失败", err)
 	}
 
 	var record Record
 	if err := json.Unmarshal(data, &record); err != nil {
-		return Record{}, fmt.Errorf("解析会话记录失败: %w", err)
+		return Record{}, opserrors.Wrap(opserrors.KindStorage, "解析会话记录失败", err)
 	}
 	if err := validateRecord(record); err != nil {
-		return Record{}, fmt.Errorf("会话记录无效: %w", err)
+		return Record{}, opserrors.Wrap(opserrors.KindStorage, "会话记录无效", err)
 	}
 	return record, nil
 }

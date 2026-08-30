@@ -13,6 +13,7 @@ import (
 	"github.com/gkmz/opspilot/internal/config"
 	"github.com/gkmz/opspilot/internal/conversation"
 	"github.com/gkmz/opspilot/internal/diagnosis"
+	opserrors "github.com/gkmz/opspilot/internal/errors"
 	"github.com/gkmz/opspilot/internal/llm"
 	"github.com/gkmz/opspilot/internal/session"
 )
@@ -70,7 +71,7 @@ func runInteractive(ctx context.Context, client llm.Client, args []string, stdin
 			output,
 		); err != nil {
 			if ctx.Err() != nil {
-				return ctx.Err()
+				return opserrors.Wrap(opserrors.KindCanceled, "交互已取消", ctx.Err())
 			}
 			fmt.Fprintf(output, "\n请求失败: %v\n", err)
 		} else {
@@ -124,7 +125,7 @@ func runInteractive(ctx context.Context, client llm.Client, args []string, stdin
 			output,
 		); err != nil {
 			if ctx.Err() != nil {
-				return ctx.Err()
+				return opserrors.Wrap(opserrors.KindCanceled, "交互已取消", ctx.Err())
 			}
 			fmt.Fprintf(output, "\n请求失败: %v\n", err)
 			continue
