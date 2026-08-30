@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/gkmz/opspilot/internal/app"
+	"github.com/gkmz/opspilot/internal/cli"
 )
 
 // main 将命令行参数和标准输入交给应用层处理，并将错误转换为非零退出码。
@@ -16,7 +16,7 @@ func main() {
 	ctx, stop := newRunContext(context.Background())
 	defer stop()
 
-	if err := app.Run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
+	if err := cli.Execute(ctx, os.Stdin, os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

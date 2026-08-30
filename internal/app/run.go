@@ -18,6 +18,9 @@ import (
 	"github.com/gkmz/opspilot/internal/session"
 )
 
+// LineReader 读取一行用户输入；到达输入末尾时应返回 io.EOF。
+type LineReader func() (string, error)
+
 // Run 读取配置并执行带有初始命令行问题的交互式流式诊断。
 func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	cfg, err := config.LoadFromEnv()
@@ -38,15 +41,33 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 // RunInteractive 在同一个进程内执行多轮流式诊断。
 func RunInteractive(ctx context.Context, client llm.Client, args []string, stdin io.Reader, output io.Writer) error {
-	return runInteractive(ctx, client, args, stdin, output, nil)
+	return runInteractive(ctx, client, args, scannerReader(stdin), output, nil, true)
 }
 
 // RunInteractiveWithStore 在同一个进程内执行多轮流式诊断，并保存成功会话。
 func RunInteractiveWithStore(ctx context.Context, client llm.Client, args []string, stdin io.Reader, output io.Writer, store *session.Store) error {
-	return runInteractive(ctx, client, args, stdin, output, store)
+	return runInteractive(ctx, client, args, scannerReader(stdin), output, store, true)
 }
 
-func runInteractive(ctx context.Context, client llm.Client, args []string, stdin io.Reader, output io.Writer, store *session.Store) error {
+// RunWithLineReader 使用调用方提供的行读取器执行诊断，适合接入终端行编辑组件。
+func RunWithLineReader(ctx context.Context, args []string, readLine LineReader, stdout, stderr io.Writer) error {
+	cfg, err := config.LoadFromEnv()
+	if err != nil {
+		return err
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
+	client := llm.NewClient(cfg)
+	store, err := session.NewDefaultStore()
+	if err != nil {
+		return err
+	}
+	return runInteractive(ctx, client, args, readLine, stdout, store, false)
+}
+
+func runInteractive(ctx context.Context, client llm.Client, args []string, readLine LineReader, output io.Writer, store *session.Store, showPrompt bool) error {
 	chat := conversation.New(diagnosis.SystemMessage())
 	sessionID, err := session.NewID()
 	if err != nil {
@@ -82,59 +103,50 @@ func runInteractive(ctx context.Context, client llm.Client, args []string, stdin
 		fmt.Fprintln(output)
 	}
 
-	scanner := bufio.NewScanner(stdin)
-
 	for {
-		fmt.Fprint(output, "> ")
+		if showPrompt {
+			fmt.Fprint(output, "> ")
+		}
 
-		var userInput string
-		result := scanLine(scanner)
+		result := readLineAsync(readLine)
 
 		// 同时监听context和scan的用户输入
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case scan := <-result:
-			if scan.err != nil {
-				return scan.err
-			}
-			if !scan.ok {
-				if !hasUserInput {
-					return errors.New("请通过参数或标准输入提供故障描述")
+		case input := <-result:
+			if input.err != nil {
+				if errors.Is(input.err, io.EOF) {
+					if !hasUserInput {
+						return errors.New("请通过参数或标准输入提供故障描述")
+					}
+					return nil
 				}
+				return input.err
+			}
+			userInput := strings.TrimSpace(input.line)
+
+			if userInput == "" {
+				continue
+			}
+			if userInput == "/exit" || userInput == "/quit" {
 				return nil
 			}
 
-			userInput = strings.TrimSpace(scan.line)
-		}
-
-		if userInput == "" {
-			continue
-		}
-
-		if userInput == "/exit" || userInput == "/quit" {
-			return nil
-		}
-
-		hasUserInput = true
-		if usage, err := runTurn(
-			ctx,
-			client,
-			chat,
-			userInput,
-			output,
-		); err != nil {
-			if ctx.Err() != nil {
-				return opserrors.Wrap(opserrors.KindCanceled, "交互已取消", ctx.Err())
+			hasUserInput = true
+			if usage, err := runTurn(ctx, client, chat, userInput, output); err != nil {
+				if ctx.Err() != nil {
+					return opserrors.Wrap(opserrors.KindCanceled, "交互已取消", ctx.Err())
+				}
+				fmt.Fprintf(output, "\n请求失败: %v\n", err)
+				continue
+			} else {
+				writeUsage(output, usage)
+				writeSessionSaveWarning(output, saveConversation(store, sessionID, createdAt, chat))
 			}
-			fmt.Fprintf(output, "\n请求失败: %v\n", err)
-			continue
-		} else {
-			writeUsage(output, usage)
-			writeSessionSaveWarning(output, saveConversation(store, sessionID, createdAt, chat))
-		}
 
-		fmt.Fprintln(output)
+			fmt.Fprintln(output)
+		}
 	}
 }
 
@@ -200,19 +212,27 @@ func runTurn(
 type scanResult struct {
 	line string
 	err  error
-	ok   bool
 }
 
-func scanLine(scanner *bufio.Scanner) <-chan scanResult {
+func scannerReader(input io.Reader) LineReader {
+	scanner := bufio.NewScanner(input)
+	return func() (string, error) {
+		if scanner.Scan() {
+			return scanner.Text(), nil
+		}
+		if err := scanner.Err(); err != nil {
+			return "", err
+		}
+		return "", io.EOF
+	}
+}
+
+func readLineAsync(readLine LineReader) <-chan scanResult {
 	result := make(chan scanResult, 1)
 
 	go func() {
-		// 把阻塞的Scan方法放到goroutine，以便外层可以监听Context
-		if scanner.Scan() {
-			result <- scanResult{line: scanner.Text(), ok: true}
-			return
-		}
-		result <- scanResult{err: scanner.Err()}
+		line, err := readLine()
+		result <- scanResult{line: line, err: err}
 	}()
 	return result
 }

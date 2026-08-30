@@ -13,6 +13,7 @@ import (
 
 	"github.com/gkmz/opspilot/internal/config"
 	"github.com/gkmz/opspilot/internal/llm"
+	"github.com/gkmz/opspilot/internal/session"
 )
 
 func TestRunReadsSymptomFromArgument(t *testing.T) {
@@ -21,7 +22,7 @@ func TestRunReadsSymptomFromArgument(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"argument result\"}}]}\n\ndata: [DONE]\n\n"))
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"argument result\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\ndata: [DONE]\n\n"))
 	}))
 	defer server.Close()
 
@@ -44,6 +45,17 @@ func TestRunReadsSymptomFromArgument(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].IsDir() {
 		t.Fatalf("saved session entries = %+v, want one file", entries)
+	}
+	store := session.NewStore(sessionDirectory)
+	record, err := store.Load(strings.TrimSuffix(entries[0].Name(), ".json"))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(record.Messages) != 3 || record.Messages[1].Content != "服务 延迟" || record.Messages[2].Content != "argument result" {
+		t.Fatalf("saved messages = %+v", record.Messages)
+	}
+	if len(record.TurnUsages) != 1 || record.TurnUsages[0].TotalTokens != 15 || record.Usage.TotalTokens != 15 {
+		t.Fatalf("saved usage = %+v, summary = %+v", record.TurnUsages, record.Usage)
 	}
 }
 
