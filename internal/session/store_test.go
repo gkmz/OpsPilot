@@ -57,3 +57,19 @@ func TestStoreRejectsUnsafeSessionID(t *testing.T) {
 		}
 	}
 }
+
+func TestNewDefaultStoreUsesHomeDirectory(t *testing.T) {
+	homeDirectory := t.TempDir()
+	t.Setenv("HOME", homeDirectory)
+	t.Setenv("OPSPILOT_SESSION_DIR", "")
+
+	store, err := NewDefaultStore()
+	if err != nil {
+		t.Fatalf("NewDefaultStore() error = %v", err)
+	}
+
+	want := filepath.Join(homeDirectory, ".opspilot", "sessions")
+	if store.directory != want {
+		t.Fatalf("store directory = %q, want %q", store.directory, want)
+	}
+}

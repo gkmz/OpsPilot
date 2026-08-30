@@ -26,11 +26,11 @@ func NewDefaultStore() (*Store, error) {
 		return NewStore(directory), nil
 	}
 
-	configDirectory, err := os.UserConfigDir()
+	homeDirectory, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("获取用户配置目录失败: %w", err)
+		return nil, fmt.Errorf("获取用户主目录失败: %w", err)
 	}
-	return NewStore(filepath.Join(configDirectory, ".opspilot", "sessions")), nil
+	return NewStore(filepath.Join(homeDirectory, ".opspilot", "sessions")), nil
 }
 
 // NewID 创建一个适合作为会话文件名的唯一 ID。
