@@ -17,6 +17,7 @@ OpsPilot 是一个面向 Go HTTP 微服务的研发故障诊断与处置助手�
 
 ## 项目文档
 
+- [项目总纲与路线图](docs/project-roadmap.md)
 - [课程与项目映射](docs/course-map.md)
 - [v0.1 里程碑](docs/milestones/v0.1.md)
 - [M1-P01 开发说明](docs/milestones/v0.1-m1-p01.md)
