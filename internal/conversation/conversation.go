@@ -14,6 +14,15 @@ type Conversation struct {
 	usage      session.UsageSummary
 }
 
+// ConversationSnapshot 表示某一时刻的会话完整快照。
+//
+// 快照同时包含消息历史、每轮 usage 和会话累计 usage，后续可直接转换为持久化记录。
+type ConversationSnapshot struct {
+	Messages   []llm.Message
+	TurnUsages []session.TurnUsage
+	Usage      session.UsageSummary
+}
+
 // New 创建一个包含初始系统消息的会话。
 func New(systemMessage llm.Message) *Conversation {
 	return &Conversation{messages: []llm.Message{systemMessage}}
@@ -66,4 +75,13 @@ func (c *Conversation) TurnUsages() []session.TurnUsage {
 	usages := make([]session.TurnUsage, len(c.turnUsages))
 	copy(usages, c.turnUsages)
 	return usages
+}
+
+// Snapshot 返回当前会话的完整快照，并复制其中的切片数据以隔离内部状态。
+func (c *Conversation) Snapshot() ConversationSnapshot {
+	return ConversationSnapshot{
+		Messages:   c.Messages(),
+		TurnUsages: c.TurnUsages(),
+		Usage:      c.Usage(),
+	}
 }

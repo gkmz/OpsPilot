@@ -105,3 +105,35 @@ func TestConversationReturnsTurnUsageSnapshot(t *testing.T) {
 		t.Fatalf("TurnUsages() exposed internal state: got %d, want 15", got)
 	}
 }
+
+func TestConversationReturnsSnapshot(t *testing.T) {
+	chat := New(llm.Message{Role: "system", Content: "system prompt"})
+	chat.CommitUser("第一轮")
+	chat.CommitAssistant("第一轮回答")
+	chat.CommitUsage(session.TurnUsage{TotalTokens: 15, Known: true})
+
+	snapshot := chat.Snapshot()
+	if len(snapshot.Messages) != 3 {
+		t.Fatalf("snapshot message count = %d, want 3", len(snapshot.Messages))
+	}
+	if len(snapshot.TurnUsages) != 1 || snapshot.TurnUsages[0].TotalTokens != 15 {
+		t.Fatalf("snapshot turn usages = %+v", snapshot.TurnUsages)
+	}
+	if snapshot.Usage.TotalTokens != 15 || !snapshot.Usage.Known {
+		t.Fatalf("snapshot usage = %+v", snapshot.Usage)
+	}
+}
+
+func TestConversationSnapshotDoesNotExposeInternalState(t *testing.T) {
+	chat := New(llm.Message{Role: "system", Content: "system prompt"})
+	chat.CommitUsage(session.TurnUsage{TotalTokens: 15, Known: true})
+
+	snapshot := chat.Snapshot()
+	snapshot.Messages[0].Content = "changed"
+	snapshot.TurnUsages[0].TotalTokens = 999
+
+	current := chat.Snapshot()
+	if current.Messages[0].Content != "system prompt" || current.TurnUsages[0].TotalTokens != 15 {
+		t.Fatalf("snapshot exposed internal state: %+v", current)
+	}
+}

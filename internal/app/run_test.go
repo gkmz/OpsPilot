@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,8 @@ func TestRunReadsSymptomFromArgument(t *testing.T) {
 	t.Setenv("OPSPILOT_API_KEY", "test-key")
 	t.Setenv("OPSPILOT_BASE_URL", server.URL)
 	t.Setenv("OPSPILOT_MODEL", "test-model")
+	sessionDirectory := t.TempDir()
+	t.Setenv("OPSPILOT_SESSION_DIR", sessionDirectory)
 
 	var stdout strings.Builder
 	if err := Run(context.Background(), []string{"服务", "延迟"}, strings.NewReader(""), &stdout, io.Discard); err != nil {
@@ -34,6 +37,13 @@ func TestRunReadsSymptomFromArgument(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "> 服务 延迟\nargument result") {
 		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
+	entries, err := os.ReadDir(sessionDirectory)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	if len(entries) != 1 || entries[0].IsDir() {
+		t.Fatalf("saved session entries = %+v, want one file", entries)
 	}
 }
 

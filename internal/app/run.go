@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/gkmz/opspilot/internal/config"
 	"github.com/gkmz/opspilot/internal/conversation"
@@ -27,12 +28,30 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 
 	client := llm.NewClient(cfg)
-	return RunInteractive(ctx, client, args, stdin, stdout)
+	store, err := session.NewDefaultStore()
+	if err != nil {
+		return err
+	}
+	return RunInteractiveWithStore(ctx, client, args, stdin, stdout, store)
 }
 
 // RunInteractive 在同一个进程内执行多轮流式诊断。
 func RunInteractive(ctx context.Context, client llm.Client, args []string, stdin io.Reader, output io.Writer) error {
+	return runInteractive(ctx, client, args, stdin, output, nil)
+}
+
+// RunInteractiveWithStore 在同一个进程内执行多轮流式诊断，并保存成功会话。
+func RunInteractiveWithStore(ctx context.Context, client llm.Client, args []string, stdin io.Reader, output io.Writer, store *session.Store) error {
+	return runInteractive(ctx, client, args, stdin, output, store)
+}
+
+func runInteractive(ctx context.Context, client llm.Client, args []string, stdin io.Reader, output io.Writer, store *session.Store) error {
 	chat := conversation.New(diagnosis.SystemMessage())
+	sessionID, err := session.NewID()
+	if err != nil {
+		return err
+	}
+	createdAt := time.Now().UTC()
 
 	// 只从命令行参数中读取第一轮问题，不读取 stdin。
 	initialSymptom := strings.TrimSpace(strings.Join(args, " "))
@@ -56,6 +75,7 @@ func RunInteractive(ctx context.Context, client llm.Client, args []string, stdin
 			fmt.Fprintf(output, "\n请求失败: %v\n", err)
 		} else {
 			writeUsage(output, usage)
+			writeSessionSaveWarning(output, saveConversation(store, sessionID, createdAt, chat))
 		}
 
 		fmt.Fprintln(output)
@@ -110,9 +130,26 @@ func RunInteractive(ctx context.Context, client llm.Client, args []string, stdin
 			continue
 		} else {
 			writeUsage(output, usage)
+			writeSessionSaveWarning(output, saveConversation(store, sessionID, createdAt, chat))
 		}
 
 		fmt.Fprintln(output)
+	}
+}
+
+func saveConversation(store *session.Store, id string, createdAt time.Time, chat *conversation.Conversation) error {
+	if store == nil {
+		return nil
+	}
+	snapshot := chat.Snapshot()
+	record := session.NewRecord(id, createdAt, snapshot.Messages, snapshot.TurnUsages, snapshot.Usage)
+	record.UpdatedAt = time.Now().UTC()
+	return store.Save(record)
+}
+
+func writeSessionSaveWarning(output io.Writer, err error) {
+	if err != nil {
+		fmt.Fprintf(output, "\n会话保存失败：%v", err)
 	}
 }
 
