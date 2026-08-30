@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"testing"
+
+	opserrors "github.com/gkmz/opspilot/internal/errors"
+)
 
 func TestConfigValidate(t *testing.T) {
 	tests := []struct {
@@ -16,8 +20,12 @@ func TestConfigValidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.config.Validate(); (err != nil) != tt.wantErr {
+			err := tt.config.Validate()
+			if (err != nil) != tt.wantErr {
 				t.Fatalf("Validate() error = %v, wantErr %t", err, tt.wantErr)
+			}
+			if tt.wantErr && opserrors.KindOf(err) != opserrors.KindConfig {
+				t.Fatalf("Validate() kind = %q, want %q", opserrors.KindOf(err), opserrors.KindConfig)
 			}
 		})
 	}
@@ -27,5 +35,7 @@ func TestLoadFromEnvRejectsInvalidTimeout(t *testing.T) {
 	t.Setenv("OPSPILOT_TIMEOUT", "not-duration")
 	if _, err := LoadFromEnv(); err == nil {
 		t.Fatal("LoadFromEnv() expected invalid timeout error")
+	} else if opserrors.KindOf(err) != opserrors.KindConfig {
+		t.Fatalf("LoadFromEnv() kind = %q, want %q", opserrors.KindOf(err), opserrors.KindConfig)
 	}
 }

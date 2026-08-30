@@ -2,12 +2,13 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	opserrors "github.com/gkmz/opspilot/internal/errors"
 )
 
 const (
@@ -33,24 +34,24 @@ func LoadFromEnv() (Config, error) {
 	if raw := strings.TrimSpace(os.Getenv("OPSPILOT_TIMEOUT")); raw != "" {
 		parsed, err := time.ParseDuration(raw)
 		if err != nil || parsed <= 0 {
-			return Config{}, fmt.Errorf("OPSPILOT_TIMEOUT 无效: %q", raw)
+			return Config{}, opserrors.Wrap(opserrors.KindConfig, fmt.Sprintf("OPSPILOT_TIMEOUT 无效: %q", raw), err)
 		}
 		timeout = parsed
 	}
 
 	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("OPSPILOT_BASE_URL")), "/")
 	if baseURL == "" {
-		return Config{}, fmt.Errorf("未设置 OPSPILOT_BASE_URL")
+		return Config{}, opserrors.Wrap(opserrors.KindConfig, "未设置 OPSPILOT_BASE_URL", nil)
 	}
 
 	apiKey := strings.TrimSpace(os.Getenv("OPSPILOT_API_KEY"))
 	if apiKey == "" {
-		return Config{}, fmt.Errorf("OPSPILOT_API_KEY 未设置")
+		return Config{}, opserrors.Wrap(opserrors.KindConfig, "OPSPILOT_API_KEY 未设置", nil)
 	}
 
 	modelName := strings.TrimSpace(os.Getenv("OPSPILOT_MODEL"))
 	if modelName == "" {
-		return Config{}, fmt.Errorf("未设置 OPSPILOT_MODEL")
+		return Config{}, opserrors.Wrap(opserrors.KindConfig, "未设置 OPSPILOT_MODEL", nil)
 	}
 
 	return Config{
@@ -64,20 +65,20 @@ func LoadFromEnv() (Config, error) {
 // Validate 检查配置是否满足单次模型调用的最低要求。
 func (c Config) Validate() error {
 	if c.BaseURL == "" {
-		return errors.New("缺少 OPSPILOT_BASE_URL")
+		return opserrors.Wrap(opserrors.KindConfig, "缺少 OPSPILOT_BASE_URL", nil)
 	}
 	if c.APIKey == "" {
-		return errors.New("缺少 OPSPILOT_API_KEY")
+		return opserrors.Wrap(opserrors.KindConfig, "缺少 OPSPILOT_API_KEY", nil)
 	}
 	if c.Model == "" {
-		return errors.New("缺少 OPSPILOT_MODEL")
+		return opserrors.Wrap(opserrors.KindConfig, "缺少 OPSPILOT_MODEL", nil)
 	}
 	parsed, err := url.ParseRequestURI(c.BaseURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return fmt.Errorf("OPSPILOT_BASE_URL 无效: %q", c.BaseURL)
+		return opserrors.Wrap(opserrors.KindConfig, fmt.Sprintf("OPSPILOT_BASE_URL 无效: %q", c.BaseURL), err)
 	}
 	if c.Timeout <= 0 {
-		return errors.New("OPSPILOT_TIMEOUT 必须大于 0")
+		return opserrors.Wrap(opserrors.KindConfig, "OPSPILOT_TIMEOUT 必须大于 0", nil)
 	}
 	return nil
 }

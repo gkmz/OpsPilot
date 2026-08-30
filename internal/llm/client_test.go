@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gkmz/opspilot/internal/config"
+	opserrors "github.com/gkmz/opspilot/internal/errors"
 	"github.com/openai/openai-go/v3"
 )
 
@@ -82,6 +83,9 @@ func TestClientChatReturnsHTTPError(t *testing.T) {
 	if apiErr.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("Chat() status = %d, want %d", apiErr.StatusCode, http.StatusTooManyRequests)
 	}
+	if got := opserrors.KindOf(err); got != opserrors.KindHTTP {
+		t.Fatalf("Chat() kind = %q, want %q", got, opserrors.KindHTTP)
+	}
 }
 
 func TestClientChatMarksMissingUsageUnknown(t *testing.T) {
@@ -101,6 +105,21 @@ func TestClientChatMarksMissingUsageUnknown(t *testing.T) {
 	}
 }
 
+func TestClientChatClassifiesNetworkError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	baseURL := server.URL
+	server.Close()
+
+	client := newTestClient(baseURL, time.Second)
+	_, err := client.Chat(context.Background(), []Message{{Role: "user", Content: "test"}})
+	if err == nil {
+		t.Fatal("Chat() expected network error")
+	}
+	if got := opserrors.KindOf(err); got != opserrors.KindNetwork {
+		t.Fatalf("Chat() kind = %q, want %q", got, opserrors.KindNetwork)
+	}
+}
+
 func TestClientChatRejectsEmptyChoices(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -112,6 +131,9 @@ func TestClientChatRejectsEmptyChoices(t *testing.T) {
 	_, err := client.Chat(context.Background(), []Message{{Role: "user", Content: "test"}})
 	if err == nil || !strings.Contains(err.Error(), "模型响应缺少 choices") {
 		t.Fatalf("Chat() error = %v, want missing choices error", err)
+	}
+	if got := opserrors.KindOf(err); got != opserrors.KindProtocol {
+		t.Fatalf("Chat() kind = %q, want %q", got, opserrors.KindProtocol)
 	}
 }
 
@@ -165,6 +187,9 @@ func TestClientStreamRejectsUnexpectedEOF(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "未收到 [DONE]") {
 		t.Fatalf("Stream() error = %v, want unexpected EOF error", err)
 	}
+	if got := opserrors.KindOf(err); got != opserrors.KindProtocol {
+		t.Fatalf("Stream() kind = %q, want %q", got, opserrors.KindProtocol)
+	}
 }
 
 func TestClientStreamReturnsHTTPError(t *testing.T) {
@@ -177,6 +202,9 @@ func TestClientStreamReturnsHTTPError(t *testing.T) {
 	_, err := client.Stream(context.Background(), nil, func(string) error { return nil })
 	if err == nil || !strings.Contains(err.Error(), "模型返回 HTTP 429") {
 		t.Fatalf("Stream() error = %v, want HTTP 429 error", err)
+	}
+	if got := opserrors.KindOf(err); got != opserrors.KindHTTP {
+		t.Fatalf("Stream() kind = %q, want %q", got, opserrors.KindHTTP)
 	}
 }
 
@@ -202,6 +230,9 @@ func TestClientStreamRejectsInvalidEvent(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "解析流式响应失败") {
 		t.Fatalf("Stream() error = %v, want invalid event error", err)
 	}
+	if got := opserrors.KindOf(err); got != opserrors.KindProtocol {
+		t.Fatalf("Stream() kind = %q, want %q", got, opserrors.KindProtocol)
+	}
 }
 
 func TestClientStreamReturnsCallbackError(t *testing.T) {
@@ -216,6 +247,9 @@ func TestClientStreamReturnsCallbackError(t *testing.T) {
 	_, err := client.Stream(context.Background(), nil, func(string) error { return callbackErr })
 	if !errors.Is(err, callbackErr) {
 		t.Fatalf("Stream() error = %v, want callback error", err)
+	}
+	if got := opserrors.KindOf(err); got != opserrors.KindCallback {
+		t.Fatalf("Stream() kind = %q, want %q", got, opserrors.KindCallback)
 	}
 }
 
@@ -256,6 +290,9 @@ func TestClientStreamCanBeCanceled(t *testing.T) {
 	case err := <-result:
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("Stream() error = %v, want context cancellation", err)
+		}
+		if got := opserrors.KindOf(err); got != opserrors.KindCanceled {
+			t.Fatalf("Stream() kind = %q, want %q", got, opserrors.KindCanceled)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Stream() did not return after cancellation")

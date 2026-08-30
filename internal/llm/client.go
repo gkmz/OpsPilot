@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 
 	"github.com/gkmz/opspilot/internal/config"
+	opserrors "github.com/gkmz/opspilot/internal/errors"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 )
@@ -71,7 +73,7 @@ func NewClient(cfg config.Config) Client {
 func (c *ChatCompletionClient) Chat(ctx context.Context, messages []Message) (Response, error) {
 	params, err := c.newChatParams(messages)
 	if err != nil {
-		return Response{}, err
+		return Response{}, opserrors.Wrap(opserrors.KindProtocol, "构造模型请求失败", err)
 	}
 
 	completion, err := c.client.Chat.Completions.New(ctx, params)
@@ -79,7 +81,7 @@ func (c *ChatCompletionClient) Chat(ctx context.Context, messages []Message) (Re
 		return Response{}, wrapSDKError("请求模型失败", err)
 	}
 	if len(completion.Choices) == 0 {
-		return Response{}, errors.New("模型响应缺少 choices")
+		return Response{}, opserrors.Wrap(opserrors.KindProtocol, "模型响应缺少 choices", nil)
 	}
 
 	return Response{
@@ -93,12 +95,12 @@ func (c *ChatCompletionClient) Chat(ctx context.Context, messages []Message) (Re
 // 只有官方 SDK 完整消费到服务端的 [DONE] 标记后，当前请求才会被视为成功。
 func (c *ChatCompletionClient) Stream(ctx context.Context, messages []Message, onChunk func(string) error) (Usage, error) {
 	if onChunk == nil {
-		return Usage{}, errors.New("流式输出回调函数不能为空")
+		return Usage{}, opserrors.Wrap(opserrors.KindCallback, "流式输出回调函数不能为空", nil)
 	}
 
 	params, err := c.newChatParams(messages)
 	if err != nil {
-		return Usage{}, err
+		return Usage{}, opserrors.Wrap(opserrors.KindProtocol, "构造模型请求失败", err)
 	}
 	params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
 		// 请求服务端在最后一个业务 chunk 中返回完整 usage；若流被中断，该 chunk 可能不会到达。
@@ -130,14 +132,14 @@ func (c *ChatCompletionClient) Stream(ctx context.Context, messages []Message, o
 				continue
 			}
 			if err := onChunk(choice.Delta.Content); err != nil {
-				return usage, fmt.Errorf("处理流式输出失败: %w", err)
+				return usage, opserrors.Wrap(opserrors.KindCallback, "处理流式输出失败", err)
 			}
 		}
 	}
 
 	// 优先返回调用方取消，避免底层连接关闭错误掩盖真正的取消原因。
 	if ctx.Err() != nil {
-		return usage, fmt.Errorf("流式请求已取消: %w", ctx.Err())
+		return usage, opserrors.Wrap(opserrors.KindCanceled, "流式请求已取消", ctx.Err())
 	}
 	// SDK 能报告 HTTP、SSE 扫描和 JSON 反序列化错误，这些错误应保留在错误链中。
 	if err := stream.Err(); err != nil {
@@ -145,7 +147,7 @@ func (c *ChatCompletionClient) Stream(ctx context.Context, messages []Message, o
 	}
 	// Err=nil 只说明读取过程没有底层错误；还必须确认协议级终止标记确实到达。
 	if !tracker.completed() {
-		return usage, errors.New("流式响应提前结束，未收到 [DONE]")
+		return usage, opserrors.Wrap(opserrors.KindProtocol, "流式响应提前结束，未收到 [DONE]", nil)
 	}
 
 	return usage, nil
@@ -189,11 +191,18 @@ func usageFromCompletion(value openai.CompletionUsage, known bool) Usage {
 
 // wrapSDKError 增加面向用户的上下文，同时保留官方 SDK 的底层错误类型。
 func wrapSDKError(operation string, err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return opserrors.Wrap(opserrors.KindCanceled, operation, err)
+	}
 	var apiErr *openai.Error
 	if errors.As(err, &apiErr) {
-		return fmt.Errorf("模型返回 HTTP %d: %w", apiErr.StatusCode, err)
+		return opserrors.NewHTTPError(apiErr.StatusCode, err)
 	}
-	return fmt.Errorf("%s: %w", operation, err)
+	var networkErr net.Error
+	if errors.As(err, &networkErr) {
+		return opserrors.Wrap(opserrors.KindNetwork, operation, err)
+	}
+	return opserrors.Wrap(opserrors.KindProtocol, operation, err)
 }
 
 type streamCompletionTracker struct {
