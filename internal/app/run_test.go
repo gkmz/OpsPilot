@@ -46,6 +46,29 @@ func TestRunRequiresSymptom(t *testing.T) {
 	}
 }
 
+func TestWriteUsageDisplaysKnownTokens(t *testing.T) {
+	var output strings.Builder
+	writeUsage(&output, llm.Usage{
+		PromptTokens:     10,
+		CompletionTokens: 5,
+		TotalTokens:      15,
+		Known:            true,
+	})
+
+	if got, want := output.String(), "\nToken 使用：输入 10，输出 5，总计 15"; got != want {
+		t.Fatalf("writeUsage() = %q, want %q", got, want)
+	}
+}
+
+func TestWriteUsageDisplaysUnknownTokens(t *testing.T) {
+	var output strings.Builder
+	writeUsage(&output, llm.Usage{})
+
+	if got, want := output.String(), "\nToken 使用：未知"; got != want {
+		t.Fatalf("writeUsage() = %q, want %q", got, want)
+	}
+}
+
 func TestRunInteractiveSendsFollowUpWithHistory(t *testing.T) {
 	var requests [][]llm.Message
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

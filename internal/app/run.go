@@ -13,6 +13,7 @@ import (
 	"github.com/gkmz/opspilot/internal/conversation"
 	"github.com/gkmz/opspilot/internal/diagnosis"
 	"github.com/gkmz/opspilot/internal/llm"
+	"github.com/gkmz/opspilot/internal/session"
 )
 
 // Run 读取配置并执行带有初始命令行问题的交互式流式诊断。
@@ -42,7 +43,7 @@ func RunInteractive(ctx context.Context, client llm.Client, args []string, stdin
 		hasUserInput = true
 		fmt.Fprintf(output, "> %s\n", initialSymptom)
 
-		if err := runTurn(
+		if usage, err := runTurn(
 			ctx,
 			client,
 			chat,
@@ -53,6 +54,8 @@ func RunInteractive(ctx context.Context, client llm.Client, args []string, stdin
 				return ctx.Err()
 			}
 			fmt.Fprintf(output, "\n请求失败: %v\n", err)
+		} else {
+			writeUsage(output, usage)
 		}
 
 		fmt.Fprintln(output)
@@ -93,7 +96,7 @@ func RunInteractive(ctx context.Context, client llm.Client, args []string, stdin
 		}
 
 		hasUserInput = true
-		if err := runTurn(
+		if usage, err := runTurn(
 			ctx,
 			client,
 			chat,
@@ -105,9 +108,19 @@ func RunInteractive(ctx context.Context, client llm.Client, args []string, stdin
 			}
 			fmt.Fprintf(output, "\n请求失败: %v\n", err)
 			continue
+		} else {
+			writeUsage(output, usage)
 		}
 
 		fmt.Fprintln(output)
+	}
+}
+
+func writeUsage(output io.Writer, usage llm.Usage) {
+	if usage.Known {
+		fmt.Fprintf(output, "\nToken 使用：输入 %d，输出 %d，总计 %d", usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
+	} else {
+		fmt.Fprint(output, "\nToken 使用：未知")
 	}
 }
 
@@ -117,12 +130,12 @@ func runTurn(
 	conversation *conversation.Conversation,
 	userInput string,
 	output io.Writer,
-) error {
+) (llm.Usage, error) {
 	conversation.CommitUser(userInput)
 
 	var content strings.Builder
 
-	_, err := client.Stream(
+	usage, err := client.Stream(
 		ctx,
 		conversation.Messages(),
 		func(chunk string) error {
@@ -136,13 +149,14 @@ func runTurn(
 	)
 	if err != nil {
 		// 流式失败时不提交不完整的 assistant 消息。
-		return err
+		return llm.Usage{}, err
 	}
 
 	// 只有 Stream 成功完成后才提交完整回答。
 	conversation.CommitAssistant(content.String())
+	conversation.CommitUsage(session.NewTurnUsage(usage))
 
-	return nil
+	return usage, nil
 }
 
 type scanResult struct {

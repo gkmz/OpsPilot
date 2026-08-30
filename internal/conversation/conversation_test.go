@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gkmz/opspilot/internal/llm"
+	"github.com/gkmz/opspilot/internal/session"
 )
 
 func TestConversationKeepsCommittedMessages(t *testing.T) {
@@ -37,5 +38,70 @@ func TestConversationIgnoresEmptyMessages(t *testing.T) {
 
 	if got := len(chat.Messages()); got != 1 {
 		t.Fatalf("message count = %d, want 1", got)
+	}
+}
+
+func TestConversationAccumulatesKnownUsage(t *testing.T) {
+	chat := New(llm.Message{Role: "system", Content: "system prompt"})
+	chat.CommitUsage(session.TurnUsage{
+		PromptTokens:     10,
+		CompletionTokens: 5,
+		TotalTokens:      15,
+		Known:            true,
+	})
+	chat.CommitUsage(session.TurnUsage{
+		PromptTokens:     20,
+		CompletionTokens: 8,
+		TotalTokens:      28,
+		Known:            true,
+	})
+
+	usage := chat.Usage()
+	if usage.PromptTokens != 30 || usage.CompletionTokens != 13 || usage.TotalTokens != 43 || !usage.Known {
+		t.Fatalf("unexpected accumulated usage: %+v", usage)
+	}
+}
+
+func TestConversationMarksAccumulatedUsageUnknown(t *testing.T) {
+	chat := New(llm.Message{Role: "system", Content: "system prompt"})
+	chat.CommitUsage(session.TurnUsage{
+		PromptTokens:     10,
+		CompletionTokens: 5,
+		TotalTokens:      15,
+		Known:            true,
+	})
+	chat.CommitUsage(session.TurnUsage{})
+
+	usage := chat.Usage()
+	if usage.Known {
+		t.Fatalf("usage = %+v, want unknown after an unknown turn", usage)
+	}
+}
+
+func TestConversationReturnsUsageCopy(t *testing.T) {
+	chat := New(llm.Message{Role: "system", Content: "system prompt"})
+	chat.CommitUsage(session.TurnUsage{TotalTokens: 15, Known: true})
+
+	usage := chat.Usage()
+	usage.TotalTokens = 999
+
+	if got := chat.Usage().TotalTokens; got != 15 {
+		t.Fatalf("Usage() exposed internal state: got %d, want 15", got)
+	}
+}
+
+func TestConversationReturnsTurnUsageSnapshot(t *testing.T) {
+	chat := New(llm.Message{Role: "system", Content: "system prompt"})
+	chat.CommitUsage(session.TurnUsage{TotalTokens: 15, Known: true})
+	chat.CommitUsage(session.TurnUsage{TotalTokens: 28, Known: true})
+
+	usages := chat.TurnUsages()
+	if len(usages) != 2 || usages[0].TotalTokens != 15 || usages[1].TotalTokens != 28 {
+		t.Fatalf("unexpected turn usages: %+v", usages)
+	}
+
+	usages[0].TotalTokens = 999
+	if got := chat.TurnUsages()[0].TotalTokens; got != 15 {
+		t.Fatalf("TurnUsages() exposed internal state: got %d, want 15", got)
 	}
 }
