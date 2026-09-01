@@ -23,3 +23,16 @@ func TestNewRootCommandConfiguresQuietUsage(t *testing.T) {
 		t.Fatal("root command should not print usage for runtime errors")
 	}
 }
+
+func TestDiagnoseSupportsDisablingSessionPersistence(t *testing.T) {
+	command := NewRootCommand(bytes.NewBuffer(nil), &bytes.Buffer{}, &bytes.Buffer{})
+	diagnose, _, err := command.Find([]string{"diagnose"})
+	if err != nil {
+		t.Fatalf("Find(diagnose) error = %v", err)
+	}
+
+	flag := diagnose.Flags().Lookup("no-session")
+	if flag == nil {
+		t.Fatal("diagnose command should provide --no-session")
+	}
+}

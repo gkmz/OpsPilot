@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -162,5 +163,41 @@ func TestRunInteractiveDoesNotCommitPartialAssistant(t *testing.T) {
 	}
 	if len(requests[1]) != 3 || requests[1][1].Content != "第一轮" || requests[1][2].Content != "第二轮" {
 		t.Fatalf("partial assistant was committed: %+v", requests[1])
+	}
+}
+
+func TestRunInteractiveReportsSaveFailureWithoutDiscardingResult(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"result\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	client := llm.NewClient(config.Config{
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+		Model:   "test-model",
+		Timeout: time.Second,
+	})
+	storeDirectory := t.TempDir()
+	storePath := filepath.Join(storeDirectory, "not-a-directory")
+	if err := os.WriteFile(storePath, []byte("file"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	var output strings.Builder
+	err := RunInteractiveWithStore(
+		context.Background(),
+		client,
+		[]string{"问题"},
+		strings.NewReader("/exit\n"),
+		&output,
+		session.NewStore(storePath),
+	)
+	if err != nil {
+		t.Fatalf("RunInteractiveWithStore() error = %v", err)
+	}
+	if !strings.Contains(output.String(), "result") || !strings.Contains(output.String(), "会话保存失败") {
+		t.Fatalf("output = %q, want result and save warning", output.String())
 	}
 }

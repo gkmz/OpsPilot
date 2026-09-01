@@ -6,12 +6,15 @@ OpsPilot 是一个面向 Go HTTP 微服务的研发故障诊断与处置助手�
 
 ## 当前阶段
 
-当前处于 `v0.1` 阶段，已完成 `M1-P02` 的进程内多轮和流式诊断能力，下一步进入 `M1-P03` 的 usage、会话持久化和版本验收：
+当前处于 `v0.1` 阶段，已完成 `M1-P03` 的 usage、会话持久化、错误分类和验收闭环：
 
 - 命令行参数可以作为第一轮故障描述直接发起流式分析；
 - 同一个 CLI 进程中可以继续补充多轮信息；
 - 上下文取消、服务端断流和错误响应不会保存半截 assistant 消息；
-- 下一阶段将完善 usage、脱敏会话保存、错误分类和 `v0.1` 验收证据。
+- 每轮调用结束后显示输入、输出和总 Token；Provider 未返回 usage 时显示“未知”；
+- 成功轮次默认保存脱敏会话到 `~/.opspilot/sessions`，可通过 `OPSPILOT_SESSION_DIR` 覆盖；
+- 使用 `diagnose --no-session` 可以关闭本次会话保存；
+- 配置、网络、HTTP、协议、取消、输出和存储错误使用稳定类别展示。
 
 `v0.1` 不包含 RAG、Agent、MCP、自动修复和生产级可靠性治理。
 
@@ -28,9 +31,9 @@ OpsPilot 是一个面向 Go HTTP 微服务的研发故障诊断与处置助手�
 - [实践证据规范](docs/evidence/README.md)
 - [项目边界 ADR](docs/adr/0001-course-project-boundary.md)
 
-## 运行 M1-P02
+## 运行 M1-P03
 
-当前实现使用 OpenAI 兼容的 `chat/completions` 协议。运行时必须显式配置 Base URL、API Key 和模型名称，代码不会默认绑定某个模型服务商。客户端会在 Base URL 后追加 `/chat/completions` 发起请求。
+当前实现使用 OpenAI 官方 Go SDK v3 的 Chat Completions API，并兼容支持该协议的模型服务商。运行时必须显式配置 Base URL、API Key 和模型名称，代码不会默认绑定某个模型服务商。
 
 ```bash
 export OPSPILOT_BASE_URL="https://provider.example.com/v1"
@@ -39,6 +42,20 @@ export OPSPILOT_MODEL="当前可用模型名"
 
 go run ./cmd/opspilot "Go 服务请求延迟突然升高"
 ```
+
+默认情况下，每轮成功调用都会将当前会话保存为 JSON 文件。目录和文件权限分别限制为 `0700` 和 `0600`，记录不包含 API Key、Authorization Header、Base URL 或其他运行配置：
+
+```text
+~/.opspilot/sessions/session-*.json
+```
+
+如果本次诊断不希望落盘，可以关闭会话保存：
+
+```bash
+go run ./cmd/opspilot diagnose --no-session "Go 服务请求延迟突然升高"
+```
+
+会话记录包含系统消息、用户消息、已完成的 assistant 回复、每轮 usage 和累计 usage。流式请求中断或取消时，不会把半截 assistant 回复提交到会话历史；保存失败只提示警告，不影响当前诊断结果。
 
 第一轮回答结束后，程序会继续等待补充信息。输入 `/exit`、`/quit` 或发送 EOF 可退出当前会话：
 
@@ -58,18 +75,22 @@ go run ./cmd/opspilot "Go 服务请求延迟突然升高"
 export OPSPILOT_TIMEOUT="30s"
 ```
 
+Token usage 仅表示 Provider 返回的本轮统计，不等同于费用结算。多轮会话只要有一轮 usage 未知，累计 usage 也标记为未知。
+
 运行本地验证：
 
 ```bash
 go test ./...
+go test -race ./...
 go vet ./...
+go build ./cmd/opspilot
 ```
 
 ## 版本路线
 
 | 版本 | 课程阶段 | 主要能力 |
 |---|---|---|
-| `v0.1` | 大模型与 API 基础 | 单次、多轮、流式故障分析 CLI |
+| `v0.1` | 大模型与 API 基础 | 单次、多轮、流式故障分析 CLI、usage、会话保存和错误分类 |
 | `v0.2` | Prompt 与结构化输出 | 诊断 Schema、Prompt 版本和回归样本 |
 | `v0.3` | 本地模型与路由 | 本地 / 云端 Provider、路由和降级 |
 | `v0.4` | RAG | Runbook、历史事故、引用和拒答 |

@@ -51,6 +51,18 @@ func RunInteractiveWithStore(ctx context.Context, client llm.Client, args []stri
 
 // RunWithLineReader 使用调用方提供的行读取器执行诊断，适合接入终端行编辑组件。
 func RunWithLineReader(ctx context.Context, args []string, readLine LineReader, stdout, stderr io.Writer) error {
+	store, err := session.NewDefaultStore()
+	if err != nil {
+		return err
+	}
+	return RunWithLineReaderAndStore(ctx, args, readLine, stdout, stderr, store)
+}
+
+// RunWithLineReaderAndStore 使用调用方提供的行读取器和会话存储执行诊断。
+//
+// store 为 nil 时关闭本次运行的会话持久化，但不影响内存中的对话结果。
+
+func RunWithLineReaderAndStore(ctx context.Context, args []string, readLine LineReader, stdout, stderr io.Writer, store *session.Store) error {
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		return err
@@ -60,10 +72,6 @@ func RunWithLineReader(ctx context.Context, args []string, readLine LineReader, 
 	}
 
 	client := llm.NewClient(cfg)
-	store, err := session.NewDefaultStore()
-	if err != nil {
-		return err
-	}
 	return runInteractive(ctx, client, args, readLine, stdout, store, false)
 }
 
