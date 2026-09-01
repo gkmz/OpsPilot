@@ -75,7 +75,7 @@ go run ./cmd/opspilot diagnose --no-session "Go 服务请求延迟突然升高"
 export OPSPILOT_TIMEOUT="30s"
 ```
 
-Token usage 仅表示 Provider 返回的本轮统计，不等同于费用结算。多轮会话只要有一轮 usage 未知，累计 usage 也标记为未知。
+Token usage 仅表示 Provider 返回的本轮统计，不等同于费用结算。每轮回答结束后显示本轮统计；退出会话时显示所有已完成轮次的累计统计。多轮会话只要有一轮 usage 未知，累计 usage 就明确提示“统计不完整”。
 
 运行本地验证：
 

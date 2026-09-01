@@ -18,6 +18,7 @@
 - 非流式和流式 Chat Completions 都返回项目自己的 `llm.Usage`。
 - Provider 未返回 usage 时使用 `Known=false`，不把零值当作准确统计。
 - Conversation 保存每轮 usage 和累计 usage，并通过快照交给 session 层。
+- 每轮回答结束后显示单轮 usage，退出会话时显示所有已完成轮次的累计 usage。
 - 成功轮次保存 JSON 会话；默认路径为 `~/.opspilot/sessions`，可用 `OPSPILOT_SESSION_DIR` 覆盖。
 - `diagnose --no-session` 关闭本次会话持久化。
 - 会话目录和文件权限分别为 `0700`、`0600`，记录不包含 API Key、Authorization Header 或 Base URL。
@@ -46,6 +47,8 @@ git diff --check
 - `TestClientChatMarksMissingUsageUnknown` 验证缺失 usage 时 `Known=false`。
 - `TestConversationAccumulatesKnownUsage`、`TestConversationMarksAccumulatedUsageUnknown` 验证每轮和累计 usage。
 - `TestRunReadsSymptomFromArgument` 验证保存记录包含消息、每轮 usage 和累计 usage。
+- `TestWriteSessionUsageDisplaysKnownSummary`、`TestWriteSessionUsageDisplaysIncompleteSummary` 验证退出汇总的已知和未知表达。
+- `TestRunInteractiveDisplaysSessionUsageWhenCanceled` 验证取消退出时仍展示此前已完成轮次的累计 usage。
 
 ### 会话安全保存
 

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -39,6 +40,9 @@ func TestRunReadsSymptomFromArgument(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "> 服务 延迟\nargument result") {
 		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "本次会话 Token 使用：输入 10，输出 5，总计 15，共 1 轮") {
+		t.Fatalf("stdout missing session usage summary: %q", stdout.String())
 	}
 	entries, err := os.ReadDir(sessionDirectory)
 	if err != nil {
@@ -92,6 +96,39 @@ func TestWriteUsageDisplaysUnknownTokens(t *testing.T) {
 	}
 }
 
+func TestWriteSessionUsageDisplaysKnownSummary(t *testing.T) {
+	var output strings.Builder
+	writeSessionUsage(&output, session.UsageSummary{
+		TurnCount:        3,
+		PromptTokens:     120,
+		CompletionTokens: 80,
+		TotalTokens:      200,
+		Known:            true,
+	})
+
+	if got, want := output.String(), "本次会话 Token 使用：输入 120，输出 80，总计 200，共 3 轮\n"; got != want {
+		t.Fatalf("writeSessionUsage() = %q, want %q", got, want)
+	}
+}
+
+func TestWriteSessionUsageDisplaysIncompleteSummary(t *testing.T) {
+	var output strings.Builder
+	writeSessionUsage(&output, session.UsageSummary{TurnCount: 2})
+
+	if got, want := output.String(), "本次会话 Token 使用：统计不完整，共 2 轮\n"; got != want {
+		t.Fatalf("writeSessionUsage() = %q, want %q", got, want)
+	}
+}
+
+func TestWriteSessionUsageSkipsEmptyConversation(t *testing.T) {
+	var output strings.Builder
+	writeSessionUsage(&output, session.UsageSummary{})
+
+	if output.Len() != 0 {
+		t.Fatalf("writeSessionUsage() = %q, want empty output", output.String())
+	}
+}
+
 func TestRunInteractiveSendsFollowUpWithHistory(t *testing.T) {
 	var requests [][]llm.Message
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -124,6 +161,25 @@ func TestRunInteractiveSendsFollowUpWithHistory(t *testing.T) {
 	}
 	if len(requests[1]) != 4 || requests[1][1].Content != "第一轮" || requests[1][2].Role != "assistant" || requests[1][3].Content != "第二轮" {
 		t.Fatalf("unexpected follow-up history: %+v", requests[1])
+	}
+	if !strings.Contains(output.String(), "本次会话 Token 使用：统计不完整，共 2 轮") {
+		t.Fatalf("output missing incomplete session usage summary: %q", output.String())
+	}
+}
+
+func TestRunInteractiveDisplaysSessionUsageWhenCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	client := &cancelAfterStreamClient{cancel: cancel}
+	var output strings.Builder
+
+	err := runInteractive(ctx, client, []string{"问题"}, func() (string, error) {
+		return "", io.EOF
+	}, &output, nil, false)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("runInteractive() error = %v, want context canceled", err)
+	}
+	if !strings.Contains(output.String(), "本次会话 Token 使用：输入 8，输出 4，总计 12，共 1 轮") {
+		t.Fatalf("output missing canceled session usage summary: %q", output.String())
 	}
 }
 
@@ -200,4 +256,25 @@ func TestRunInteractiveReportsSaveFailureWithoutDiscardingResult(t *testing.T) {
 	if !strings.Contains(output.String(), "result") || !strings.Contains(output.String(), "会话保存失败") {
 		t.Fatalf("output = %q, want result and save warning", output.String())
 	}
+}
+
+type cancelAfterStreamClient struct {
+	cancel context.CancelFunc
+}
+
+func (c *cancelAfterStreamClient) Chat(context.Context, []llm.Message) (llm.Response, error) {
+	return llm.Response{}, errors.New("unexpected Chat call")
+}
+
+func (c *cancelAfterStreamClient) Stream(_ context.Context, _ []llm.Message, onChunk func(string) error) (llm.Usage, error) {
+	if err := onChunk("result"); err != nil {
+		return llm.Usage{}, err
+	}
+	c.cancel()
+	return llm.Usage{
+		PromptTokens:     8,
+		CompletionTokens: 4,
+		TotalTokens:      12,
+		Known:            true,
+	}, nil
 }

@@ -61,7 +61,6 @@ func RunWithLineReader(ctx context.Context, args []string, readLine LineReader, 
 // RunWithLineReaderAndStore 使用调用方提供的行读取器和会话存储执行诊断。
 //
 // store 为 nil 时关闭本次运行的会话持久化，但不影响内存中的对话结果。
-
 func RunWithLineReaderAndStore(ctx context.Context, args []string, readLine LineReader, stdout, stderr io.Writer, store *session.Store) error {
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
@@ -77,6 +76,11 @@ func RunWithLineReaderAndStore(ctx context.Context, args []string, readLine Line
 
 func runInteractive(ctx context.Context, client llm.Client, args []string, readLine LineReader, output io.Writer, store *session.Store, showPrompt bool) error {
 	chat := conversation.New(diagnosis.SystemMessage())
+	// 所有退出路径统一展示已完成轮次的累计 usage，避免在多个 return 分支重复处理。
+	defer func() {
+		writeSessionUsage(output, chat.Usage())
+	}()
+
 	sessionID, err := session.NewID()
 	if err != nil {
 		return err
@@ -180,6 +184,24 @@ func writeUsage(output io.Writer, usage llm.Usage) {
 	} else {
 		fmt.Fprint(output, "\nToken 使用：未知")
 	}
+}
+
+func writeSessionUsage(output io.Writer, usage session.UsageSummary) {
+	if usage.TurnCount == 0 {
+		return
+	}
+	if usage.Known {
+		fmt.Fprintf(
+			output,
+			"本次会话 Token 使用：输入 %d，输出 %d，总计 %d，共 %d 轮\n",
+			usage.PromptTokens,
+			usage.CompletionTokens,
+			usage.TotalTokens,
+			usage.TurnCount,
+		)
+		return
+	}
+	fmt.Fprintf(output, "本次会话 Token 使用：统计不完整，共 %d 轮\n", usage.TurnCount)
 }
 
 func runTurn(
